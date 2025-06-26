@@ -1,8 +1,10 @@
 'use client'
 
+import React, { useMemo, useState, useCallback } from 'react'
+import { FixedSizeList as List } from 'react-window'
 import { Button } from '@/components/ui/button'
 import {
-  Command,
+  Command,  
   CommandEmpty,
   CommandGroup,
   CommandInput,
@@ -23,28 +25,40 @@ import {
   PathValue,
   UseFormReturn,
 } from 'react-hook-form'
-import React from 'react'
 
 type Option = {
   label: string
   value: string
 }
 
-type GenericComboboxProps<T extends FieldValues> = {
+type CommonProps<T extends FieldValues> = {
   form: UseFormReturn<T>
   name: FieldPath<T>
   options: Option[]
   label?: string
   disabled?: boolean
   placeholder?: string
-  multiselect?: boolean
-  onSelect?: (option: Option | Option[]) => void
   renderOption?: (option: Option, selected: boolean) => React.ReactNode
+  listHeight?: number
+}
+
+type MultiSelectProps = {
+  multiselect: true
+  onSelect?: (selected: Option[]) => void
   renderSelected?: (
-    selected: Option | Option[] | null,
-    handleRemove?: (value: string, e: React.MouseEvent) => void
+    selected: Option[],
+    handleRemove: (value: string, e: React.MouseEvent) => void,
   ) => React.ReactNode
 }
+
+type SingleSelectProps = {
+  multiselect?: false
+  onSelect?: (selected: Option) => void
+  renderSelected?: (selected: Option | null) => React.ReactNode
+}
+
+export type GenericComboboxProps<T extends FieldValues> = CommonProps<T> &
+  (MultiSelectProps | SingleSelectProps)
 
 export function MultiSelectCombobox<T extends FieldValues>({
   form,
@@ -53,31 +67,81 @@ export function MultiSelectCombobox<T extends FieldValues>({
   label = 'Select',
   disabled = false,
   placeholder = 'Select option...',
-  multiselect = false,
-  onSelect,
   renderOption,
-  renderSelected,
+  listHeight = 300, // customizable list height
+  ...props
 }: GenericComboboxProps<T>) {
-  const { control, getFieldState, setValue } = form
+  const { control, getFieldState, setValue, getValues } = form
+  const [inputValue, setInputValue] = useState('')
 
-  const handleRemove = (value: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (multiselect) {
-      const currentValues = (form.getValues(name) as string[]) || []
-      const newValues = currentValues.filter(v => v !== value)
-      setValue(name, newValues as PathValue<T, FieldPath<T>>, {
-        shouldValidate: true,
-      })
-      onSelect?.(options.filter(opt => newValues.includes(opt.value)))
-    }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const selectedValues = props.multiselect
+    ? (getValues(name) as string[]) || []
+    : [getValues(name) as string].filter(Boolean)
+
+  const selectedOptions = useMemo(
+    () =>
+      options.filter(opt =>
+        props.multiselect
+          ? selectedValues.includes(opt.value)
+          : opt.value === getValues(name),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [getValues, name, options, props.multiselect],
+  )
+
+  const filteredOptions = useMemo(() => {
+    const search = inputValue.toLowerCase()
+    return options.filter(
+      o =>
+        o.label.toLowerCase().includes(search) ||
+        o.value.toLowerCase().includes(search),
+    )
+  }, [options, inputValue])
+
+  const handleSelect = useCallback(
+    (option: Option) => {
+      if (props.multiselect) {
+        const newValues = selectedValues.includes(option.value)
+          ? selectedValues.filter(v => v !== option.value)
+          : [...selectedValues, option.value]
+
+        setValue(name, newValues as PathValue<T, FieldPath<T>>, {
+          shouldValidate: true,
+        })
+
+        props.onSelect?.(options.filter(opt => newValues.includes(opt.value)))
+      } else {
+        setValue(name, option.value as PathValue<T, FieldPath<T>>, {
+          shouldValidate: true,
+        })
+        props.onSelect?.(option)
+      }
+    },
+    [selectedValues, setValue, name, options, props],
+  )
+
+  const handleRemove = useCallback(
+    (value: string, e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (props.multiselect) {
+        const currentValues = (getValues(name) as string[]) || []
+        const newValues = currentValues.filter(v => v !== value)
+        setValue(name, newValues as PathValue<T, FieldPath<T>>, {
+          shouldValidate: true,
+        })
+        props.onSelect?.(options.filter(opt => newValues.includes(opt.value)))
+      }
+    },
+    [getValues, setValue, name, options, props],
+  )
 
   const DefaultRemovableItem = ({ option }: { option: Option }) => (
-    <span className='flex items-center gap-1 bg-muted px-2 py-1 rounded text-sm'>
+    <span className='bg-muted flex items-center gap-1 rounded px-2 py-1 text-sm'>
       {option.label}
       <span
         onClick={e => handleRemove(option.value, e)}
-        className='ml-1 rounded-full hover:bg-muted-foreground/20 p-0.5'
+        className='hover:bg-muted-foreground/20 ml-1 rounded-full p-0.5'
         aria-label={`Remove ${option.label}`}
       >
         <IconX className='h-3 w-3 opacity-70 hover:opacity-100' />
@@ -85,133 +149,129 @@ export function MultiSelectCombobox<T extends FieldValues>({
     </span>
   )
 
+  const ITEM_HEIGHT = 40
+  const INPUT_HEIGHT = 36
+  const VIRTUAL_LIST_HEIGHT = listHeight - INPUT_HEIGHT
+
   return (
     <FormField
       control={control}
       name={name}
-      render={({ field }) => {
-        const selectedValues = multiselect
-          ? (field.value as string[]) || []
-          : [field.value as string].filter(Boolean)
-
-        const selectedOptions = options.filter(opt =>
-          multiselect
-            ? selectedValues.includes(opt.value)
-            : opt.value === field.value
-        )
-
-        const handleSelect = (option: Option) => {
-          if (multiselect) {
-            const newValues = selectedValues.includes(option.value)
-              ? selectedValues.filter(v => v !== option.value)
-              : [...selectedValues, option.value]
-
-            setValue(name, newValues as PathValue<T, FieldPath<T>>, {
-              shouldValidate: true,
-            })
-            onSelect?.(options.filter(opt => newValues.includes(opt.value)))
-          } else {
-            setValue(name, option.value as PathValue<T, FieldPath<T>>, {
-              shouldValidate: true,
-            })
-            onSelect?.(option)
-          }
-        }
-
-        return (
-          <FormItem>
-            {label && <FormLabel className='text-xs'>{label}</FormLabel>}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant='outline'
-                  role='combobox'
-                  disabled={disabled}
-                  className={cn(
-                    'w-full justify-between h-fit min-h-10',
-                    getFieldState(name).error &&
-                      'border-destructive text-destructive ring-1 ring-destructive'
-                  )}
-                >
-                  {renderSelected ? (
-                    renderSelected(
-                      multiselect
-                        ? selectedOptions
-                        : selectedOptions[0] || null,
-                      handleRemove
-                    )
+      render={() => (
+        <FormItem>
+          {label && <FormLabel className='text-xs'>{label}</FormLabel>}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant='outline'
+                role='combobox'
+                disabled={disabled}
+                className={cn(
+                  'h-fit min-h-10 w-full justify-between',
+                  getFieldState(name).error &&
+                    'border-destructive text-destructive ring-destructive ring-1',
+                )}
+              >
+                {'renderSelected' in props && props.renderSelected ? (
+                  props.multiselect ? (
+                    props.renderSelected(selectedOptions, handleRemove)
                   ) : (
-                    <div className='flex flex-wrap gap-1.5 overflow-hidden'>
-                      {multiselect ? (
-                        selectedOptions.length > 0 ? (
-                          selectedOptions.map(option => (
-                            <DefaultRemovableItem
-                              key={option.value}
-                              option={option}
-                            />
-                          ))
-                        ) : (
-                          <span className='text-muted-foreground'>
-                            {placeholder}
-                          </span>
-                        )
+                    props.renderSelected(selectedOptions[0] || null)
+                  )
+                ) : (
+                  <div className='flex flex-wrap gap-1.5 overflow-hidden'>
+                    {props.multiselect ? (
+                      selectedOptions.length > 0 ? (
+                        selectedOptions.map(option => (
+                          <DefaultRemovableItem
+                            key={option.value}
+                            option={option}
+                          />
+                        ))
                       ) : (
                         <span className='text-muted-foreground'>
-                          {selectedOptions[0]
-                            ? selectedOptions[0].label
-                            : placeholder}
+                          {placeholder}
                         </span>
-                      )}
-                    </div>
-                  )}
-                  <IconSelector className='h-4 w-4 opacity-50' />
-                </Button>
-              </PopoverTrigger>
+                      )
+                    ) : (
+                      <span className='text-muted-foreground'>
+                        {selectedOptions[0]
+                          ? selectedOptions[0].label
+                          : placeholder}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <IconSelector className='h-4 w-4 opacity-50' />
+              </Button>
+            </PopoverTrigger>
 
-              <PopoverContent
-                className='p-0 w-full'
-                align='start'
+            <PopoverContent
+              className='w-full p-0'
+              align='start'
+              style={{ height: listHeight }}
+            >
+              <Command
+                shouldFilter={false}
+                className='flex h-full flex-col'
               >
-                <Command>
-                  <CommandInput
-                    placeholder='Search...'
-                    className='h-9'
-                  />
-                  <CommandList>
-                    <CommandEmpty>No options found.</CommandEmpty>
-                    <CommandGroup>
-                      {options.map(option => {
-                        const isSelected = multiselect
+                <CommandInput
+                  placeholder='Search...'
+                  className='h-9'
+                  value={inputValue}
+                  onValueChange={setInputValue}
+                />
+                <CommandList className='flex-1 overflow-hidden'>
+                  <CommandEmpty>No options found.</CommandEmpty>
+                  <CommandGroup className='!p-0'>
+                    <List
+                      height={Math.min(
+                        filteredOptions.length * ITEM_HEIGHT,
+                        VIRTUAL_LIST_HEIGHT,
+                      )}
+                      itemCount={filteredOptions.length}
+                      itemSize={ITEM_HEIGHT}
+                      width='16rem'
+                      className='!overflow-x-hidden'
+                    >
+                      {({ index, style }) => {
+                        const option = filteredOptions[index]
+                        const isSelected = props.multiselect
                           ? selectedValues.includes(option.value)
-                          : field.value === option.value
+                          : getValues(name) === option.value
 
                         return (
-                          <CommandItem
+                          <div
+                            style={style}
                             key={option.value}
-                            value={option.value}
-                            onSelect={() => handleSelect(option)}
+                            className='p-2'
                           >
-                            {renderOption ? (
-                              renderOption(option, isSelected)
-                            ) : (
-                              <div className='flex items-center justify-between w-full'>
-                                <span>{option.label}</span>
-                                {isSelected && (
-                                  <IconCheck className='ml-auto h-4 w-4' />
-                                )}
-                              </div>
-                            )}
-                          </CommandItem>
+                            <CommandItem
+                              value={`${option.label} ${option.value}`}
+                              onSelect={() => handleSelect(option)}
+                            >
+                              {renderOption ? (
+                                renderOption(option, isSelected)
+                              ) : (
+                                <div className='flex w-full items-center justify-between'>
+                                  <span>{option.label}</span>
+                                  {isSelected && (
+                                    <IconCheck className='ml-auto h-4 w-4' />
+                                  )}
+                                </div>
+                              )}
+                            </CommandItem>
+                          </div>
                         )
-                      })}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </FormItem>
-        )
-      }}
+                      }}
+                    </List>
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </FormItem>
+      )}
     />
   )
 }
