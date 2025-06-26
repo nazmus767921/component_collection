@@ -4,7 +4,7 @@ import React, { useMemo, useState, useCallback } from 'react'
 import { FixedSizeList as List } from 'react-window'
 import { Button } from '@/components/ui/button'
 import {
-  Command,  
+  Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
@@ -24,6 +24,7 @@ import {
   FieldValues,
   PathValue,
   UseFormReturn,
+  useWatch,
 } from 'react-hook-form'
 
 type Option = {
@@ -47,7 +48,7 @@ type MultiSelectProps = {
   onSelect?: (selected: Option[]) => void
   renderSelected?: (
     selected: Option[],
-    handleRemove: (value: string, e: React.MouseEvent) => void,
+    handleRemove: (value: string, e: React.MouseEvent) => void
   ) => React.ReactNode
 }
 
@@ -79,23 +80,25 @@ export function MultiSelectCombobox<T extends FieldValues>({
     ? (getValues(name) as string[]) || []
     : [getValues(name) as string].filter(Boolean)
 
-  const selectedOptions = useMemo(
-    () =>
-      options.filter(opt =>
-        props.multiselect
-          ? selectedValues.includes(opt.value)
-          : opt.value === getValues(name),
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getValues, name, options, props.multiselect],
-  )
+  const watchedValue = useWatch({ control, name })
+
+  const selectedOptions = useMemo(() => {
+    if (props.multiselect) {
+      const values = Array.isArray(watchedValue)
+        ? watchedValue
+        : ([] as string[])
+      return options.filter(opt => values.includes(opt.value))
+    }
+
+    return options.filter(opt => opt.value === watchedValue)
+  }, [watchedValue, options, props.multiselect])
 
   const filteredOptions = useMemo(() => {
     const search = inputValue.toLowerCase()
     return options.filter(
       o =>
         o.label.toLowerCase().includes(search) ||
-        o.value.toLowerCase().includes(search),
+        o.value.toLowerCase().includes(search)
     )
   }, [options, inputValue])
 
@@ -118,7 +121,7 @@ export function MultiSelectCombobox<T extends FieldValues>({
         props.onSelect?.(option)
       }
     },
-    [selectedValues, setValue, name, options, props],
+    [selectedValues, setValue, name, options, props]
   )
 
   const handleRemove = useCallback(
@@ -133,7 +136,7 @@ export function MultiSelectCombobox<T extends FieldValues>({
         props.onSelect?.(options.filter(opt => newValues.includes(opt.value)))
       }
     },
-    [getValues, setValue, name, options, props],
+    [getValues, setValue, name, options, props]
   )
 
   const DefaultRemovableItem = ({ option }: { option: Option }) => (
@@ -169,7 +172,7 @@ export function MultiSelectCombobox<T extends FieldValues>({
                 className={cn(
                   'h-fit min-h-10 w-full justify-between',
                   getFieldState(name).error &&
-                    'border-destructive text-destructive ring-destructive ring-1',
+                    'border-destructive text-destructive ring-destructive ring-1'
                 )}
               >
                 {'renderSelected' in props && props.renderSelected ? (
@@ -193,11 +196,13 @@ export function MultiSelectCombobox<T extends FieldValues>({
                           {placeholder}
                         </span>
                       )
+                    ) : selectedOptions[0] ? (
+                      <span className='text-foreground'>
+                        {selectedOptions[0].label}
+                      </span>
                     ) : (
                       <span className='text-muted-foreground'>
-                        {selectedOptions[0]
-                          ? selectedOptions[0].label
-                          : placeholder}
+                        {placeholder}
                       </span>
                     )}
                   </div>
@@ -227,7 +232,7 @@ export function MultiSelectCombobox<T extends FieldValues>({
                     <List
                       height={Math.min(
                         filteredOptions.length * ITEM_HEIGHT,
-                        VIRTUAL_LIST_HEIGHT,
+                        VIRTUAL_LIST_HEIGHT
                       )}
                       itemCount={filteredOptions.length}
                       itemSize={ITEM_HEIGHT}
